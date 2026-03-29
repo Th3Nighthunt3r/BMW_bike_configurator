@@ -303,17 +303,43 @@ import { RGBELoader }    from 'three/addons/loaders/RGBELoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 /* ═══════════════════════════════════════════════════
-   ASSET URLS
-   Large files (.glb, .hdr) are hosted as GitHub Release
-   assets so GitHub Pages can serve them directly.
-   configurator_bike.json is small enough to live in the repo.
+   ASSET RESOLUTION
+   Local  → relative paths (./file)
+   Hosted → GitHub LFS Batch API returns signed S3 URLs
+            with Access-Control-Allow-Origin: * so they
+            work cross-origin from GitHub Pages.
 ═══════════════════════════════════════════════════ */
-const RELEASE_BASE = 'https://github.com/Th3Nighthunt3r/BMW_bike_configurator/releases/download/v1.0.0-assets';
-const ASSETS = {
-  config : './configurator_bike.json',
-  hdr    : `${RELEASE_BASE}/neon_photostudio_4k.hdr`,
-  glb    : `${RELEASE_BASE}/BMW_BIke_configurator_1.glb`,
-};
+const REPO = 'Th3Nighthunt3r/BMW_bike_configurator';
+const LFS_OBJECTS = [
+  { key: 'glb', oid: '763e16589ed3771922997b695998ee5f450fd09c5c64a99fb2023f7ec7e558f5', size: 109881268 },
+  { key: 'hdr', oid: '4bd3d2d74e80a2df07940c8d063078c45f86066d57bf74b747ac9533b73b42af', size: 24745449  },
+];
+
+const isLocal = ['localhost','127.0.0.1',''].includes(location.hostname);
+
+async function resolveAssets() {
+  if (isLocal) {
+    return { config: './configurator_bike.json', glb: './BMW_BIke_configurator_1.glb', hdr: './neon_photostudio_4k.hdr' };
+  }
+  // Fetch signed CDN URLs via GitHub LFS Batch API (CORS: *)
+  const res = await fetch(`https://github.com/${REPO}.git/info/lfs/objects/batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/vnd.git-lfs+json', 'Accept': 'application/vnd.git-lfs+json' },
+    body: JSON.stringify({ operation: 'download', transfers: ['basic'],
+      objects: LFS_OBJECTS.map(o => ({ oid: o.oid, size: o.size })) }),
+  });
+  if (!res.ok) throw new Error(`LFS API ${res.status}`);
+  const { objects } = await res.json();
+  const urlMap = {};
+  objects.forEach(o => {
+    const entry = LFS_OBJECTS.find(l => l.oid === o.oid);
+    if (entry) urlMap[entry.key] = o.actions.download.href;
+  });
+  return { config: './configurator_bike.json', glb: urlMap.glb, hdr: urlMap.hdr };
+}
+
+// Resolved at runtime before loading assets
+let ASSETS = {};
 
 /* ═══════════════════════════════════════════════════
    HELPERS
@@ -440,7 +466,10 @@ scene.add(ground);
 /* ═══════════════════════════════════════════════════
    LOAD CONFIG JSON
 ═══════════════════════════════════════════════════ */
-setProgress(5, 'Loading configuration…');
+setProgress(5, 'Resolving asset URLs…');
+ASSETS = await resolveAssets();
+
+setProgress(8, 'Loading configuration…');
 let config;
 try {
   const resp = await fetch(ASSETS.config);
