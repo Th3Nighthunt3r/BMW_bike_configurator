@@ -303,6 +303,19 @@ import { RGBELoader }    from 'three/addons/loaders/RGBELoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 /* ═══════════════════════════════════════════════════
+   ASSET URLS
+   Large files (.glb, .hdr) are hosted as GitHub Release
+   assets so GitHub Pages can serve them directly.
+   configurator_bike.json is small enough to live in the repo.
+═══════════════════════════════════════════════════ */
+const RELEASE_BASE = 'https://github.com/Th3Nighthunt3r/BMW_bike_configurator/releases/download/v1.0.0-assets';
+const ASSETS = {
+  config : './configurator_bike.json',
+  hdr    : `${RELEASE_BASE}/neon_photostudio_4k.hdr`,
+  glb    : `${RELEASE_BASE}/BMW_BIke_configurator_1.glb`,
+};
+
+/* ═══════════════════════════════════════════════════
    HELPERS
 ═══════════════════════════════════════════════════ */
 const $ = id => document.getElementById(id);
@@ -430,7 +443,7 @@ scene.add(ground);
 setProgress(5, 'Loading configuration…');
 let config;
 try {
-  const resp = await fetch('./configurator_bike.json');
+  const resp = await fetch(ASSETS.config);
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   config = await resp.json();
 } catch (e) {
@@ -455,7 +468,7 @@ const geoVariants   = geoGroup?.variants   ?? [];
 setProgress(15, 'Loading environment…');
 try {
   const hdrTex = await new Promise((res, rej) => {
-    new RGBELoader().load('./neon_photostudio_4k.hdr', res, undefined, rej);
+    new RGBELoader().load(ASSETS.hdr, res, undefined, rej);
   });
   hdrTex.mapping = THREE.EquirectangularReflectionMapping;
   scene.environment = hdrTex;
@@ -480,7 +493,7 @@ try {
     const gltfLoader = new GLTFLoader();
     gltfLoader.setDRACOLoader(dracoLoader);
     gltfLoader.load(
-      './BMW_BIke_configurator_1.glb',
+      ASSETS.glb,
       res,
       ({ loaded, total }) => {
         const p = total > 0 ? 30 + (loaded / total) * 55 : 50;
