@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BMW R1200GS Adventure — 3D Configurator</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --glass-bg: rgba(8, 8, 10, 0.82);
+      --glass-border: rgba(255,255,255,0.07);
+      --text-dim: rgba(255,255,255,0.35);
+      --text-mid: rgba(255,255,255,0.6);
+      --text-full: #fff;
+      --accent: #c8a96e;
+    }
+
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: #060608;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      color: var(--text-full);
+    }
+
+    /* ── CANVAS ── */
+    #canvas {
+      position: fixed; inset: 0;
+      display: block; width: 100%; height: 100%;
+    }
+
+    /* ── VIGNETTE ── */
+    #vignette {
+      position: fixed; inset: 0; pointer-events: none; z-index: 10;
+      background: radial-gradient(ellipse at 50% 40%, transparent 45%, rgba(0,0,0,0.65) 100%);
+    }
+
+    /* ── LOADING SCREEN ── */
+    #loader {
+      position: fixed; inset: 0; z-index: 900;
+      background: #060608;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 0;
+      transition: opacity 0.9s ease, visibility 0.9s ease;
+    }
+    #loader.out { opacity: 0; visibility: hidden; }
+
+    .l-eyebrow {
+      font-size: 10px; letter-spacing: 0.45em; text-transform: uppercase;
+      color: var(--text-dim); margin-bottom: 10px;
+    }
+    .l-title {
+      font-size: clamp(28px, 5vw, 48px);
+      font-weight: 200; letter-spacing: 0.08em;
+      background: linear-gradient(135deg, #fff 0%, rgba(255,255,255,0.5) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text; margin-bottom: 52px;
+    }
+    .l-track {
+      width: 280px; height: 1px; background: rgba(255,255,255,0.08);
+      position: relative; overflow: hidden; border-radius: 1px;
+    }
+    .l-bar {
+      position: absolute; top: 0; left: 0; height: 100%; width: 0%;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      transition: width 0.4s ease;
+    }
+    .l-status {
+      margin-top: 18px; font-size: 10px; letter-spacing: 0.22em;
+      color: var(--text-dim); text-transform: uppercase;
+    }
+
+    /* ── ERROR SCREEN ── */
+    #error-screen {
+      display: none; position: fixed; inset: 0; z-index: 950;
+      background: #060608; align-items: center; justify-content: center;
+      flex-direction: column; gap: 16px; text-align: center; padding: 40px;
+    }
+    #error-screen.show { display: flex; }
+    .err-title { font-size: 18px; font-weight: 300; color: #f06060; }
+    .err-body  { font-size: 13px; color: var(--text-dim); max-width: 520px; line-height: 1.8; }
+    .err-code  { font-family: monospace; font-size: 11px; background: rgba(255,255,255,0.05);
+                 padding: 12px 20px; border-radius: 8px; color: var(--text-mid);
+                 border: 1px solid var(--glass-border); text-align: left; }
+
+    /* ── TOP BAR ── */
+    #top-bar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      display: flex; align-items: flex-start; justify-content: space-between;
+      padding: 28px 36px 0;
+      pointer-events: none;
+    }
+
+    .brand-block { pointer-events: auto; }
+    .brand-eye   { font-size: 9px; letter-spacing: 0.4em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 5px; }
+    .brand-name  { font-size: clamp(18px, 2.2vw, 26px); font-weight: 200; letter-spacing: 0.06em; line-height: 1; }
+    .brand-sub   { font-size: 10px; letter-spacing: 0.2em; color: var(--accent); margin-top: 5px; text-transform: uppercase; }
+
+    .cam-group { display: flex; gap: 8px; pointer-events: auto; }
+    .cam-btn {
+      padding: 9px 18px; border-radius: 6px; cursor: pointer;
+      font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+      background: var(--glass-bg); border: 1px solid var(--glass-border);
+      color: var(--text-mid); backdrop-filter: blur(16px);
+      transition: all 0.2s ease; white-space: nowrap;
+    }
+    .cam-btn:hover  { background: rgba(255,255,255,0.12); color: #fff; border-color: rgba(255,255,255,0.18); }
+    .cam-btn.active { background: rgba(200,169,110,0.18); color: var(--accent); border-color: rgba(200,169,110,0.4); }
+
+    /* ── SIDE HINT ── */
+    #drag-hint {
+      position: fixed; bottom: 210px; left: 50%; transform: translateX(-50%);
+      z-index: 90; font-size: 10px; letter-spacing: 0.24em; text-transform: uppercase;
+      color: var(--text-dim); transition: opacity 1.2s ease; pointer-events: none;
+    }
+    #drag-hint.fade { opacity: 0; }
+
+    /* ── CONFIG PANEL ── */
+    #panel {
+      position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
+      width: min(740px, 96vw);
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border); border-bottom: none;
+      border-radius: 20px 20px 0 0;
+      backdrop-filter: blur(28px) saturate(1.3);
+      z-index: 100; overflow: hidden;
+    }
+
+    .panel-inner {
+      padding: 24px 32px 28px;
+      display: flex; gap: 0; flex-direction: column;
+    }
+
+    /* Panel top line */
+    .panel-handle {
+      width: 36px; height: 3px; border-radius: 3px;
+      background: rgba(255,255,255,0.12); margin: 14px auto 0; cursor: pointer;
+    }
+
+    .panel-row {
+      display: flex; gap: 40px; align-items: flex-start;
+    }
+
+    @media (max-width: 560px) {
+      .panel-row { flex-direction: column; gap: 22px; }
+    }
+
+    .section { flex: 1; min-width: 0; }
+    .sec-label {
+      font-size: 9px; letter-spacing: 0.38em; text-transform: uppercase;
+      color: var(--text-dim); margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+    }
+    .sec-label::after { content: ''; flex: 1; height: 1px; background: var(--glass-border); }
+
+    /* ── COLOR SWATCHES ── */
+    .swatches { display: flex; gap: 10px; flex-wrap: wrap; }
+
+    .swatch-wrap {
+      display: flex; flex-direction: column; align-items: center; gap: 7px;
+      cursor: pointer; user-select: none;
+    }
+    .swatch-ring {
+      width: 44px; height: 44px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      border: 2px solid transparent;
+      transition: border-color 0.25s ease, transform 0.2s ease;
+    }
+    .swatch-wrap:hover .swatch-ring { transform: scale(1.08); }
+    .swatch-wrap.active .swatch-ring { border-color: rgba(255,255,255,0.75); }
+
+    .swatch-dot {
+      width: 32px; height: 32px; border-radius: 50%;
+      transition: transform 0.2s ease;
+    }
+    .swatch-wrap.active .swatch-dot { transform: scale(0.9); }
+
+    .swatch-label {
+      font-size: 8.5px; letter-spacing: 0.08em; text-align: center;
+      color: var(--text-dim); text-transform: uppercase; max-width: 60px;
+      transition: color 0.2s;
+    }
+    .swatch-wrap.active .swatch-label { color: var(--text-mid); }
+
+    /* ── VARIANT BUTTONS ── */
+    .variant-row { display: flex; gap: 8px; }
+    .var-btn {
+      flex: 1; padding: 11px 16px; border-radius: 10px; cursor: pointer;
+      font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; text-align: center;
+      background: rgba(255,255,255,0.04); border: 1px solid var(--glass-border);
+      color: var(--text-dim); transition: all 0.22s ease;
+    }
+    .var-btn:hover  { background: rgba(255,255,255,0.09); color: var(--text-mid); }
+    .var-btn.active {
+      background: rgba(200,169,110,0.12);
+      border-color: rgba(200,169,110,0.35);
+      color: var(--accent);
+    }
+
+    /* ── SELECTED COLOR NAME BADGE ── */
+    #color-badge {
+      position: fixed; left: 36px; bottom: 210px; z-index: 99;
+      font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase;
+      color: var(--text-dim); transition: opacity 0.4s ease;
+      pointer-events: none;
+    }
+    #color-badge span {
+      color: var(--text-mid);
+      transition: color 0.3s;
+    }
+
+    /* ── PANEL TOGGLE (mobile) ── */
+    #panel-toggle {
+      display: none; position: fixed; bottom: 16px; right: 16px; z-index: 200;
+      width: 48px; height: 48px; border-radius: 50%; cursor: pointer;
+      background: var(--glass-bg); border: 1px solid var(--glass-border);
+      backdrop-filter: blur(16px); font-size: 20px; align-items: center;
+      justify-content: center; transition: all 0.2s;
+    }
+
+    /* ── STATS BAR ── */
+    #stats-bar {
+      position: fixed; right: 36px; top: 50%; transform: translateY(-50%);
+      z-index: 90; display: flex; flex-direction: column; gap: 2px;
+      pointer-events: none; opacity: 0; transition: opacity 0.5s ease;
+    }
+    #stats-bar.show { opacity: 1; }
+    .stat-item { font-size: 9px; letter-spacing: 0.15em; color: var(--text-dim); text-transform: uppercase; text-align: right; }
+    .stat-value { color: var(--text-mid); }
+  </style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div id="loader">
+  <div class="l-eyebrow">BMW Motorrad</div>
+  <div class="l-title">R1200GS Adventure</div>
+  <div class="l-track"><div class="l-bar" id="l-bar"></div></div>
+  <div class="l-status" id="l-status">Initialising…</div>
+</div>
+
+<!-- ERROR -->
+<div id="error-screen">
+  <div class="err-title">⚠ Unable to load assets</div>
+  <div class="err-body" id="err-body"></div>
+  <div class="err-code" id="err-code"></div>
+</div>
+
+<!-- CANVAS -->
+<canvas id="canvas"></canvas>
+<div id="vignette"></div>
+
+<!-- TOP BAR -->
+<div id="top-bar">
+  <div class="brand-block">
+    <div class="brand-eye">BMW Motorrad</div>
+    <div class="brand-name">R1200GS Adventure</div>
+    <div class="brand-sub">3D Configurator</div>
+  </div>
+  <div class="cam-group">
+    <button class="cam-btn active" data-view="default">3/4 View</button>
+    <button class="cam-btn" data-view="front">Front</button>
+    <button class="cam-btn" data-view="side">Side</button>
+    <button class="cam-btn" data-view="top">Top</button>
+  </div>
+</div>
+
+<div id="drag-hint">Drag to rotate · Scroll to zoom</div>
+<div id="color-badge">Color — <span id="color-badge-name">Midnight Blue</span></div>
+
+<!-- CONFIG PANEL -->
+<div id="panel">
+  <div class="panel-handle"></div>
+  <div class="panel-inner">
+    <div class="panel-row">
+      <div class="section">
+        <div class="sec-label">Colour Variant</div>
+        <div class="swatches" id="swatches"></div>
+      </div>
+      <div class="section">
+        <div class="sec-label">Geometry Variant</div>
+        <div class="variant-row" id="var-row"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- THREE.JS via ESM import map -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.167.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader }    from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader }   from 'three/addons/loaders/DRACOLoader.js';
+import { RGBELoader }    from 'three/addons/loaders/RGBELoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ═══════════════════════════════════════════════════
+   HELPERS
+═══════════════════════════════════════════════════ */
+const $ = id => document.getElementById(id);
+const lBar   = $('l-bar');
+const lStatus = $('l-status');
+
+function setProgress(pct, msg) {
+  lBar.style.width = Math.min(pct, 100) + '%';
+  lStatus.textContent = msg;
+}
+
+function showError(title, body, code) {
+  $('loader').classList.add('out');
+  const es = $('error-screen');
+  $('err-body').innerHTML = body;
+  $('err-code').textContent = code || '';
+  es.classList.add('show');
+}
+
+/* ═══════════════════════════════════════════════════
+   RENDERER + SCENE
+═══════════════════════════════════════════════════ */
+const canvas   = $('canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping          = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure  = 1.25;
+renderer.outputColorSpace     = THREE.SRGBColorSpace;
+renderer.shadowMap.enabled    = true;
+renderer.shadowMap.type       = THREE.PCFSoftShadowMap;
+
+const scene  = new THREE.Scene();
+scene.background = new THREE.Color(0x060608);
+
+const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.05, 300);
+camera.position.set(4, 1.8, 4);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping  = true;
+controls.dampingFactor  = 0.055;
+controls.minDistance    = 1.2;
+controls.maxDistance    = 18;
+controls.maxPolarAngle  = Math.PI * 0.84;
+controls.target.set(0, 0.6, 0);
+controls.update();
+
+/* ═══════════════════════════════════════════════════
+   CAMERA VIEWS  (updated after model load)
+═══════════════════════════════════════════════════ */
+let VIEWS = {
+  default: { pos: [4,   1.8, 4  ], tgt: [0, 0.6, 0] },
+  front:   { pos: [0,   1.2, 6.5], tgt: [0, 0.6, 0] },
+  side:    { pos: [7.5, 1.3, 0  ], tgt: [0, 0.6, 0] },
+  top:     { pos: [0,   7,   0.1], tgt: [0, 0.0, 0] },
+};
+
+let camTargetPos  = new THREE.Vector3().copy(camera.position);
+let camTargetLook = new THREE.Vector3(0, 0.6, 0);
+let camAnimating  = false;
+
+function goToView(key) {
+  const v = VIEWS[key]; if (!v) return;
+  camTargetPos.set(...v.pos);
+  camTargetLook.set(...v.tgt);
+  camAnimating = true;
+  document.querySelectorAll('.cam-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.view === key));
+}
+
+document.querySelectorAll('.cam-btn').forEach(b =>
+  b.addEventListener('click', () => goToView(b.dataset.view)));
+
+/* ═══════════════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════════════ */
+let meshMap        = {};          // name → Mesh
+let colorMeshes    = [];          // Meshes with cloned mat slot-0
+let allGeoNames    = new Set();
+let colorAnims     = [];          // active color tweens
+let autoRotate     = true;
+let autoRotateTimer;
+let selectedColor  = 0;
+let selectedGeo    = 1;           // default to Variant 2
+
+const COLOR_NAMES   = ['Midnight Blue', 'Racing Red', 'Rally Green', 'Adventure Orange'];
+const VARIANT_NAMES = ['Standard', 'Adventure'];
+
+/* ═══════════════════════════════════════════════════
+   FALLBACK LIGHTS (if HDR fails)
+═══════════════════════════════════════════════════ */
+const ambLight = new THREE.AmbientLight(0xffffff, 0.6);
+scene.add(ambLight);
+const keyLight = new THREE.DirectionalLight(0xfff5e0, 3.5);
+keyLight.position.set(6, 10, 6);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(2048, 2048);
+keyLight.shadow.camera.near = 0.5;
+keyLight.shadow.camera.far  = 50;
+keyLight.shadow.camera.left = keyLight.shadow.camera.bottom = -8;
+keyLight.shadow.camera.right = keyLight.shadow.camera.top   = 8;
+scene.add(keyLight);
+const fillLight = new THREE.DirectionalLight(0xc0d8ff, 1.2);
+fillLight.position.set(-5, 4, -4);
+scene.add(fillLight);
+const rimLight  = new THREE.DirectionalLight(0xffe8c0, 0.8);
+rimLight.position.set(0, 2, -8);
+scene.add(rimLight);
+
+/* ═══════════════════════════════════════════════════
+   GROUND
+═══════════════════════════════════════════════════ */
+const groundMat = new THREE.MeshStandardMaterial({
+  color: 0x080810, roughness: 0.85, metalness: 0.15
+});
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), groundMat);
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = -0.005;
+ground.receiveShadow = true;
+scene.add(ground);
+
+/* ═══════════════════════════════════════════════════
+   LOAD CONFIG JSON
+═══════════════════════════════════════════════════ */
+setProgress(5, 'Loading configuration…');
+let config;
+try {
+  const resp = await fetch('./configurator_bike.json');
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  config = await resp.json();
+} catch (e) {
+  showError(
+    'Configuration error',
+    'Could not load <code>configurator_bike.json</code>.<br><br>' +
+    'This page must be served from a local HTTP server — browsers block file:// cross-origin requests.<br>' +
+    'Run: <code>npx serve .</code> or <code>python -m http.server 8080</code> inside the folder, then open <code>http://localhost:8080</code>.',
+    'Error: ' + e.message
+  );
+  throw e;
+}
+
+const colorGroup = config.groups.find(g => g.type === 'COLOR');
+const geoGroup   = config.groups.find(g => g.type === 'GEO');
+const colorVariants = colorGroup?.variants ?? [];
+const geoVariants   = geoGroup?.variants   ?? [];
+
+/* ═══════════════════════════════════════════════════
+   LOAD HDR
+═══════════════════════════════════════════════════ */
+setProgress(15, 'Loading environment…');
+try {
+  const hdrTex = await new Promise((res, rej) => {
+    new RGBELoader().load('./neon_photostudio_4k.hdr', res, undefined, rej);
+  });
+  hdrTex.mapping = THREE.EquirectangularReflectionMapping;
+  scene.environment = hdrTex;
+  // Keep dark scene background, only use HDR for reflections/IBL
+  ambLight.intensity = 0;   // HDR handles ambient
+  keyLight.intensity = 0.8; // subtle fill only
+  fillLight.intensity = 0.3;
+  rimLight.intensity  = 0.4;
+} catch(e) {
+  console.warn('HDR not loaded, using fallback lights:', e.message);
+}
+
+/* ═══════════════════════════════════════════════════
+   LOAD GLB
+═══════════════════════════════════════════════════ */
+setProgress(30, 'Loading 3D model…');
+let gltf;
+try {
+  gltf = await new Promise((res, rej) => {
+    const dracoLoader = new DRACOLoader();
+    dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/libs/draco/');
+    const gltfLoader = new GLTFLoader();
+    gltfLoader.setDRACOLoader(dracoLoader);
+    gltfLoader.load(
+      './BMW_BIke_configurator_1.glb',
+      res,
+      ({ loaded, total }) => {
+        const p = total > 0 ? 30 + (loaded / total) * 55 : 50;
+        setProgress(p, `Loading model… ${Math.round(p)}%`);
+      },
+      rej
+    );
+  });
+} catch(e) {
+  showError(
+    'Model load error',
+    'Could not load <code>BMW_BIke_configurator_1.glb</code>.<br><br>' +
+    'Make sure the file is in the same folder and you are using a local HTTP server.',
+    'Error: ' + e.message
+  );
+  throw e;
+}
+
+/* ═══════════════════════════════════════════════════
+   SETUP SCENE
+═══════════════════════════════════════════════════ */
+setProgress(90, 'Preparing configurator…');
+
+const model = gltf.scene;
+scene.add(model);
+
+// ── Centre & scale ──
+const bbox   = new THREE.Box3().setFromObject(model);
+const bSize  = bbox.getSize(new THREE.Vector3());
+const bCtr   = bbox.getCenter(new THREE.Vector3());
+const maxDim = Math.max(bSize.x, bSize.y, bSize.z);
+const scale  = 3.8 / maxDim;
+
+model.scale.setScalar(scale);
+// Move so bottom sits at y=0
+model.position.set(
+  -bCtr.x * scale,
+   -bbox.min.y * scale,
+  -bCtr.z * scale
+);
+
+// Enable shadows on all meshes
+model.traverse(obj => {
+  if (obj.isMesh) {
+    obj.castShadow    = true;
+    obj.receiveShadow = true;
+    meshMap[obj.name] = obj;
+  }
+});
+
+// ── Recalculate bounds after transform ──
+const bbox2  = new THREE.Box3().setFromObject(model);
+const bSize2 = bbox2.getSize(new THREE.Vector3());
+const bCtr2  = bbox2.getCenter(new THREE.Vector3());
+
+// ── Update camera views ──
+const diagLen = bSize2.length();
+const midH    = bCtr2.y;
+const tgt     = [bCtr2.x, midH * 0.75, bCtr2.z];
+
+VIEWS = {
+  default: { pos: [diagLen * 0.7,  midH + bSize2.y * 0.25, diagLen * 0.7  ], tgt },
+  front:   { pos: [0,              midH,                    diagLen * 0.95  ], tgt },
+  side:    { pos: [diagLen * 1.05, midH,                    0               ], tgt },
+  top:     { pos: [bCtr2.x,        diagLen * 1.1,           bCtr2.z + 0.01  ], tgt },
+};
+
+// Position camera at default view
+const dv = VIEWS.default;
+camera.position.set(...dv.pos);
+camTargetPos.copy(camera.position);
+controls.target.set(...tgt);
+camTargetLook.set(...tgt);
+controls.update();
+
+// ── Collect all geo names ──
+geoVariants.forEach(v => v.objects.forEach(n => allGeoNames.add(n)));
+
+// ── Initially hide ALL geo variant objects ──
+allGeoNames.forEach(n => { if (meshMap[n]) meshMap[n].visible = false; });
+
+// ── Clone materials for colourable meshes ──
+const colorableNameSet = new Set();
+colorVariants.forEach(v => v.target_objects.forEach(n => colorableNameSet.add(n)));
+
+colorableNameSet.forEach(name => {
+  const mesh = meshMap[name];
+  if (!mesh) return;
+  if (Array.isArray(mesh.material)) {
+    if (mesh.material[0]) {
+      mesh.material[0] = mesh.material[0].clone();
+    }
+  } else if (mesh.material) {
+    mesh.material = mesh.material.clone();
+  }
+  colorMeshes.push(mesh);
+});
+
+/* ═══════════════════════════════════════════════════
+   COLOUR APPLICATION
+═══════════════════════════════════════════════════ */
+function getMat0(mesh) {
+  return Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+}
+
+function applyColor(idx, animate = true) {
+  const variant = colorVariants[idx]; if (!variant) return;
+  const targetSet   = new Set(variant.target_objects);
+  const targetColor = new THREE.Color(variant.hex);
+
+  colorMeshes.forEach(mesh => {
+    if (!targetSet.has(mesh.name)) return;
+    const mat = getMat0(mesh); if (!mat) return;
+    if (animate) {
+      colorAnims.push({ mat, from: mat.color.clone(), to: targetColor.clone(), t: 0 });
+    } else {
+      mat.color.set(targetColor);
+    }
+  });
+}
+
+function applyGeoVariant(idx) {
+  allGeoNames.forEach(n => { if (meshMap[n]) meshMap[n].visible = false; });
+  const v = geoVariants[idx]; if (!v) return;
+  v.objects.forEach(n => { if (meshMap[n]) meshMap[n].visible = true; });
+}
+
+// Apply defaults (no animation on first load)
+applyGeoVariant(selectedGeo);
+applyColor(selectedColor, false);
+
+/* ═══════════════════════════════════════════════════
+   BUILD UI
+═══════════════════════════════════════════════════ */
+const swatchesEl = $('swatches');
+colorVariants.forEach((v, i) => {
+  const name = COLOR_NAMES[i] || v.label;
+  const wrap = document.createElement('div');
+  wrap.className = 'swatch-wrap' + (i === selectedColor ? ' active' : '');
+  wrap.innerHTML = `
+    <div class="swatch-ring">
+      <div class="swatch-dot" style="background:${v.hex}; box-shadow:0 0 14px 2px ${v.hex}55;"></div>
+    </div>
+    <div class="swatch-label">${name}</div>`;
+  wrap.addEventListener('click', () => {
+    if (selectedColor === i) return;
+    selectedColor = i;
+    applyColor(i, true);
+    document.querySelectorAll('.swatch-wrap').forEach((el, j) =>
+      el.classList.toggle('active', j === i));
+    $('color-badge-name').textContent = name;
+  });
+  swatchesEl.appendChild(wrap);
+});
+
+const varRow = $('var-row');
+geoVariants.forEach((v, i) => {
+  const name = VARIANT_NAMES[i] || v.label;
+  const btn  = document.createElement('button');
+  btn.className = 'var-btn' + (i === selectedGeo ? ' active' : '');
+  btn.textContent = name;
+  btn.addEventListener('click', () => {
+    if (selectedGeo === i) return;
+    selectedGeo = i;
+    applyGeoVariant(i);
+    document.querySelectorAll('.var-btn').forEach((el, j) =>
+      el.classList.toggle('active', j === i));
+  });
+  varRow.appendChild(btn);
+});
+
+// Set initial badge
+$('color-badge-name').textContent = COLOR_NAMES[selectedColor] || colorVariants[selectedColor]?.label;
+
+/* ═══════════════════════════════════════════════════
+   AUTO-ROTATE + INTERACTION
+═══════════════════════════════════════════════════ */
+renderer.domElement.addEventListener('pointerdown', () => {
+  autoRotate = false;
+  clearTimeout(autoRotateTimer);
+  $('drag-hint').classList.add('fade');
+});
+renderer.domElement.addEventListener('pointerup', () => {
+  clearTimeout(autoRotateTimer);
+  autoRotateTimer = setTimeout(() => { autoRotate = true; }, 6000);
+});
+
+/* ═══════════════════════════════════════════════════
+   RESIZE
+═══════════════════════════════════════════════════ */
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+/* ═══════════════════════════════════════════════════
+   RENDER LOOP
+═══════════════════════════════════════════════════ */
+const clock = new THREE.Clock();
+
+function tick() {
+  requestAnimationFrame(tick);
+  const dt = clock.getDelta();
+
+  // Color tweens (ease-in-out cubic, 0.35s)
+  colorAnims = colorAnims.filter(a => {
+    a.t = Math.min(a.t + dt * 2.85, 1);
+    const e = a.t < 0.5 ? 4*a.t*a.t*a.t : 1 - Math.pow(-2*a.t+2,3)/2;
+    a.mat.color.lerpColors(a.from, a.to, e);
+    return a.t < 1;
+  });
+
+  // Camera preset animation (smooth lerp)
+  if (camAnimating) {
+    camera.position.lerp(camTargetPos, 0.048);
+    controls.target.lerp(camTargetLook, 0.048);
+    if (camera.position.distanceTo(camTargetPos) < 0.005) {
+      camera.position.copy(camTargetPos);
+      controls.target.copy(camTargetLook);
+      camAnimating = false;
+    }
+  }
+
+  // Auto-rotate
+  controls.autoRotate      = autoRotate;
+  controls.autoRotateSpeed = 0.45;
+  controls.update();
+
+  renderer.render(scene, camera);
+}
+
+/* ═══════════════════════════════════════════════════
+   DONE
+═══════════════════════════════════════════════════ */
+setProgress(100, 'Ready');
+setTimeout(() => {
+  $('loader').classList.add('out');
+  // Fade hint after 5 s
+  setTimeout(() => $('drag-hint').classList.add('fade'), 5000);
+}, 600);
+
+tick();
+</script>
+</body>
+</html>
