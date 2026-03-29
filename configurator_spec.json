@@ -1,0 +1,226 @@
+{
+  "spec_version": "1.0.0",
+  "name": "3D Web Configurator Specification",
+  "description": "Complete blueprint for recreating this immersive Three.js web configurator from scratch. Share this file alongside the GLB, HDR, and configurator JSON to reproduce the full experience.",
+
+  "assets": {
+    "model": {
+      "file": "BMW_BIke_configurator_1.glb",
+      "format": "GLB (glTF 2.0 Binary)",
+      "compression": "Draco mesh compression (KHR_draco_mesh_compression)",
+      "note_on_size": "If the GLB exceeds 100 MB, split it into two chunks for GitHub Pages hosting. The browser fetches both in parallel and merges the ArrayBuffers before parsing.",
+      "split_strategy": {
+        "chunk_naming": "<original_name>.part1.glb / .part2.glb",
+        "split_point": "exact midpoint (Math.ceil(buffer.length / 2))",
+        "split_command": "node -e \"const fs=require('fs'); const b=fs.readFileSync('model.glb'); const m=Math.ceil(b.length/2); fs.writeFileSync('model.part1.glb',b.slice(0,m)); fs.writeFileSync('model.part2.glb',b.slice(m));\"",
+        "browser_merge": "fetch both, new Uint8Array(b1 + b2), pass .buffer to GLTFLoader.parse()"
+      }
+    },
+    "environment": {
+      "file": "neon_photostudio_4k.hdr",
+      "format": "RGBE / Radiance HDR",
+      "resolution": "4K recommended for quality reflections",
+      "mapping": "THREE.EquirectangularReflectionMapping",
+      "usage": "scene.environment only (not scene.background) — keeps the dark UI aesthetic",
+      "fallback": "If HDR fails to load, activate ambient + directional lights automatically"
+    },
+    "config": {
+      "file": "configurator_bike.json",
+      "description": "Exported from Blender addon. Defines colour variant hex codes + target mesh names, and geometry variant mesh visibility groups."
+    }
+  },
+
+  "blender_export_workflow": {
+    "addon": "Custom Blender configurator addon v2.0.0 (compatible with Blender 5.x)",
+    "what_it_exports": [
+      "GLB with all variant meshes included (both visible and hidden)",
+      "configurator_bike.json listing each variant group, hex colours, mesh names, and material slot indices"
+    ],
+    "glb_export_settings": {
+      "format": "GLB",
+      "draco_compression": true,
+      "include_all_objects": true,
+      "apply_modifiers": true,
+      "mesh_naming": "Objects must keep their Blender names — the configurator matches by mesh.name"
+    },
+    "json_groups": {
+      "COLOR": {
+        "purpose": "Recolour specific meshes by setting material slot 0 to a new hex colour",
+        "fields": ["id", "label", "hex", "material", "mat_slot", "target_objects[]"]
+      },
+      "GEO": {
+        "purpose": "Show/hide mutually exclusive sets of meshes (e.g. handlebar style A vs B)",
+        "fields": ["id", "label", "objects[]", "default"]
+      }
+    }
+  },
+
+  "tech_stack": {
+    "renderer": "Three.js r167 (ESM via import map — zero bundler, zero build step)",
+    "loaders": {
+      "GLTFLoader": "three/addons/loaders/GLTFLoader.js",
+      "DRACOLoader": "three/addons/loaders/DRACOLoader.js — decoder served from jsDelivr CDN",
+      "RGBELoader": "three/addons/loaders/RGBELoader.js"
+    },
+    "controls": "OrbitControls (three/addons/controls/OrbitControls.js)",
+    "cdn": "https://cdn.jsdelivr.net/npm/three@0.167.0/",
+    "draco_decoder_path": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/libs/draco/"
+  },
+
+  "renderer_settings": {
+    "antialias": true,
+    "pixelRatio": "Math.min(window.devicePixelRatio, 2)",
+    "toneMapping": "THREE.ACESFilmicToneMapping",
+    "toneMappingExposure": 1.25,
+    "outputColorSpace": "THREE.SRGBColorSpace",
+    "shadowMap": { "enabled": true, "type": "THREE.PCFSoftShadowMap" }
+  },
+
+  "scene_setup": {
+    "background_color": "#060608",
+    "camera": {
+      "type": "PerspectiveCamera",
+      "fov": 42,
+      "near": 0.05,
+      "far": 300,
+      "initial_position": "computed from model bounding box after load"
+    },
+    "orbit_controls": {
+      "enableDamping": true,
+      "dampingFactor": 0.055,
+      "minDistance": 1.2,
+      "maxDistance": 18,
+      "maxPolarAngle": "Math.PI * 0.84",
+      "autoRotate": true,
+      "autoRotateSpeed": 0.45,
+      "autoRotate_pause_on_interaction": true,
+      "autoRotate_resume_after_seconds": 6
+    },
+    "ground_plane": {
+      "geometry": "PlaneGeometry(30, 30)",
+      "color": "#080810",
+      "roughness": 0.85,
+      "metalness": 0.15,
+      "receiveShadow": true
+    },
+    "fallback_lights": [
+      { "type": "AmbientLight",     "color": "#ffffff", "intensity": 0.6, "note": "disabled when HDR loads" },
+      { "type": "DirectionalLight", "color": "#fff5e0", "intensity": 3.5, "position": [6,10,6],  "castShadow": true },
+      { "type": "DirectionalLight", "color": "#c0d8ff", "intensity": 1.2, "position": [-5,4,-4] },
+      { "type": "DirectionalLight", "color": "#ffe8c0", "intensity": 0.8, "position": [0,2,-8]  }
+    ]
+  },
+
+  "model_loading": {
+    "step_1_fetch": "Fetch part1 and part2 in parallel with Promise.all",
+    "step_2_merge": "Concatenate Uint8Arrays into a single ArrayBuffer",
+    "step_3_parse": "GLTFLoader.parse(buffer, './', onLoad, onError)",
+    "step_4_centre": {
+      "method": "Box3.setFromObject → getCenter / getSize",
+      "scale_target": "3.8 / maxDimension",
+      "position": "shift so model bottom sits at Y=0, centred on X/Z"
+    },
+    "step_5_shadows": "model.traverse → obj.castShadow = obj.receiveShadow = true",
+    "step_6_mesh_map": "Build name→Mesh dictionary via model.traverse"
+  },
+
+  "colour_variant_system": {
+    "how_it_works": [
+      "1. After model load, collect all mesh names referenced in any colour variant's target_objects.",
+      "2. For each such mesh, clone its material at mat_slot index (default 0) so changes are independent per mesh.",
+      "3. On colour selection, animate mat.color from current → new hex using cubic ease-in-out over ~0.35 s."
+    ],
+    "material_access": "Array.isArray(mesh.material) ? mesh.material[slot] : mesh.material",
+    "animation": {
+      "duration_seconds": 0.35,
+      "easing": "cubic ease-in-out: t<0.5 ? 4t³ : 1-(-2t+2)³/2",
+      "method": "THREE.Color.lerpColors per frame in render loop"
+    },
+    "important": "Clone materials ONCE at load time — never on every colour change"
+  },
+
+  "geometry_variant_system": {
+    "how_it_works": [
+      "1. Collect all object names from ALL geo variant groups into a Set.",
+      "2. On load, hide every object in that Set (mesh.visible = false).",
+      "3. On variant selection, hide the full Set again, then show only the selected variant's objects."
+    ],
+    "default_variant": "index 1 (Variant 2 — the larger, more complete set)"
+  },
+
+  "camera_presets": {
+    "how_it_works": "Lerp camera.position and controls.target each frame toward target values (0.048 blend factor).",
+    "presets": {
+      "default": { "label": "3/4 View",  "position": "diagLen*0.7 on X and Z, mid height" },
+      "front":   { "label": "Front",     "position": "centre Z, diagLen*0.95 away" },
+      "side":    { "label": "Side",      "position": "diagLen*1.05 on X, centre Z" },
+      "top":     { "label": "Top",       "position": "directly above, slight Z offset to avoid gimbal lock" }
+    },
+    "all_targets": "all presets look at the model's bounding box centre"
+  },
+
+  "ui_design": {
+    "style": "Glass-morphism dark overlay",
+    "background": "rgba(8,8,10,0.82) + backdrop-filter: blur(28px)",
+    "accent_color": "#c8a96e (gold)",
+    "layout": {
+      "top_bar": "brand name (top-left) + camera preset buttons (top-right)",
+      "bottom_panel": "fixed centred panel, max-width 740px, two sections side by side",
+      "section_1": "Colour Variant — circular swatches with ring selection indicator",
+      "section_2": "Geometry Variant — toggle buttons"
+    },
+    "colour_swatch": {
+      "selected_indicator": "2px white ring via border on parent .swatch-ring element",
+      "glow": "box-shadow on .swatch-dot matching the hex colour"
+    },
+    "vignette": "radial-gradient overlay (transparent centre → black edges) for depth",
+    "drag_hint": "fades out after 5 seconds of inactivity"
+  },
+
+  "hosting": {
+    "recommended": "GitHub Pages (free, static, no server needed)",
+    "deployment": "GitHub Actions workflow — pushes to Pages on every commit to main",
+    "large_file_strategy": {
+      "problem": "GitHub Pages cannot serve Git LFS files (serves pointer text instead). GitHub Releases/LFS CDN blocks browser CORS.",
+      "solution": "Split GLB into two chunks each under 100 MB. Push as regular git files. Browser merges at runtime.",
+      "lfs_should_be": "disabled — remove all rules from .gitattributes"
+    },
+    "local_dev": "npx serve . (any static server) — required because browsers block file:// fetches"
+  },
+
+  "file_structure": {
+    "index.html": "Complete self-contained configurator (HTML + CSS + JS, no build step)",
+    "configurator_bike.json": "Variant definitions exported from Blender addon",
+    "<model>.part1.glb": "First half of the GLB binary (if model > 100 MB)",
+    "<model>.part2.glb": "Second half of the GLB binary",
+    "<model>.glb": "Original full GLB (keep locally, not pushed if > 100 MB)",
+    "<environment>.hdr": "HDR environment map for IBL lighting",
+    ".github/workflows/deploy.yml": "GitHub Actions Pages deployment",
+    ".gitignore": "Excludes node_modules, OS files, editor files",
+    "configurator_spec.json": "This file — the full blueprint"
+  },
+
+  "reproduction_steps": {
+    "summary": "Given a GLB + HDR + configurator_bike.json + this spec, reproduce the configurator in ~10 minutes.",
+    "steps": [
+      "1. Place all files in a folder.",
+      "2. If GLB > 100 MB: run the split_command in assets.model.split_strategy to create .part1 and .part2 files.",
+      "3. Copy the index.html template (from this repo or recreate from this spec).",
+      "4. In index.html, update ASSETS paths if filenames differ from defaults.",
+      "5. Update colour/variant display names in COLOR_NAMES / VARIANT_NAMES arrays if desired.",
+      "6. Run 'npx serve .' and open http://localhost:3000 to test locally.",
+      "7. Push to GitHub, enable Pages (Settings → Pages → GitHub Actions source), done."
+    ]
+  },
+
+  "meta": {
+    "created": "2026-03-29",
+    "model": "BMW R1200GS Adventure 2014",
+    "blender_source": "BMW_BIke_configurator.blend",
+    "blender_version": "5.0.1",
+    "addon_version": "2.0.0",
+    "threejs_version": "r167",
+    "github_repo": "https://github.com/Th3Nighthunt3r/BMW_bike_configurator",
+    "live_url": "https://Th3Nighthunt3r.github.io/BMW_bike_configurator"
+  }
+}
