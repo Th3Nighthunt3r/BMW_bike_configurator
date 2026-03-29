@@ -303,43 +303,33 @@ import { RGBELoader }    from 'three/addons/loaders/RGBELoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 /* ═══════════════════════════════════════════════════
-   ASSET RESOLUTION
-   Local  → relative paths (./file)
-   Hosted → GitHub LFS Batch API returns signed S3 URLs
-            with Access-Control-Allow-Origin: * so they
-            work cross-origin from GitHub Pages.
+   ASSET PATHS
+   The 105 MB GLB is split into two ~52 MB chunks so
+   both fit within GitHub's 100 MB per-file limit and
+   can be served directly from GitHub Pages (no LFS).
+   The browser fetches both parts in parallel, merges
+   the ArrayBuffers, then passes the full buffer to
+   GLTFLoader.parse() — no temp URL needed.
 ═══════════════════════════════════════════════════ */
-const REPO = 'Th3Nighthunt3r/BMW_bike_configurator';
-const LFS_OBJECTS = [
-  { key: 'glb', oid: '763e16589ed3771922997b695998ee5f450fd09c5c64a99fb2023f7ec7e558f5', size: 109881268 },
-  { key: 'hdr', oid: '4bd3d2d74e80a2df07940c8d063078c45f86066d57bf74b747ac9533b73b42af', size: 24745449  },
-];
+const ASSETS = {
+  config : './configurator_bike.json',
+  glbPart1: './BMW_BIke_configurator_1.part1.glb',
+  glbPart2: './BMW_BIke_configurator_1.part2.glb',
+  hdr     : './neon_photostudio_4k.hdr',
+};
 
-const isLocal = ['localhost','127.0.0.1',''].includes(location.hostname);
-
-async function resolveAssets() {
-  if (isLocal) {
-    return { config: './configurator_bike.json', glb: './BMW_BIke_configurator_1.glb', hdr: './neon_photostudio_4k.hdr' };
-  }
-  // Fetch signed CDN URLs via GitHub LFS Batch API (CORS: *)
-  const res = await fetch(`https://github.com/${REPO}.git/info/lfs/objects/batch`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/vnd.git-lfs+json', 'Accept': 'application/vnd.git-lfs+json' },
-    body: JSON.stringify({ operation: 'download', transfers: ['basic'],
-      objects: LFS_OBJECTS.map(o => ({ oid: o.oid, size: o.size })) }),
-  });
-  if (!res.ok) throw new Error(`LFS API ${res.status}`);
-  const { objects } = await res.json();
-  const urlMap = {};
-  objects.forEach(o => {
-    const entry = LFS_OBJECTS.find(l => l.oid === o.oid);
-    if (entry) urlMap[entry.key] = o.actions.download.href;
-  });
-  return { config: './configurator_bike.json', glb: urlMap.glb, hdr: urlMap.hdr };
+async function fetchGLBBuffer(onProgress) {
+  const [r1, r2] = await Promise.all([
+    fetch(ASSETS.glbPart1), fetch(ASSETS.glbPart2),
+  ]);
+  if (!r1.ok) throw new Error(`Part1 HTTP ${r1.status}`);
+  if (!r2.ok) throw new Error(`Part2 HTTP ${r2.status}`);
+  const [b1, b2] = await Promise.all([r1.arrayBuffer(), r2.arrayBuffer()]);
+  const merged = new Uint8Array(b1.byteLength + b2.byteLength);
+  merged.set(new Uint8Array(b1), 0);
+  merged.set(new Uint8Array(b2), b1.byteLength);
+  return merged.buffer;
 }
-
-// Resolved at runtime before loading assets
-let ASSETS = {};
 
 /* ═══════════════════════════════════════════════════
    HELPERS
@@ -467,8 +457,6 @@ scene.add(ground);
    LOAD CONFIG JSON
 ═══════════════════════════════════════════════════ */
 setProgress(5, 'Resolving asset URLs…');
-ASSETS = await resolveAssets();
-
 setProgress(8, 'Loading configuration…');
 let config;
 try {
@@ -511,31 +499,28 @@ try {
 }
 
 /* ═══════════════════════════════════════════════════
-   LOAD GLB
+   LOAD GLB  (fetched as two chunks, merged client-side)
 ═══════════════════════════════════════════════════ */
-setProgress(30, 'Loading 3D model…');
+setProgress(30, 'Loading 3D model… (part 1/2)');
 let gltf;
 try {
+  const dracoLoader = new DRACOLoader();
+  dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/libs/draco/');
+  const gltfLoader = new GLTFLoader();
+  gltfLoader.setDRACOLoader(dracoLoader);
+
+  setProgress(40, 'Downloading model chunks…');
+  const glbBuffer = await fetchGLBBuffer();
+  setProgress(75, 'Parsing 3D model…');
+
   gltf = await new Promise((res, rej) => {
-    const dracoLoader = new DRACOLoader();
-    dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/libs/draco/');
-    const gltfLoader = new GLTFLoader();
-    gltfLoader.setDRACOLoader(dracoLoader);
-    gltfLoader.load(
-      ASSETS.glb,
-      res,
-      ({ loaded, total }) => {
-        const p = total > 0 ? 30 + (loaded / total) * 55 : 50;
-        setProgress(p, `Loading model… ${Math.round(p)}%`);
-      },
-      rej
-    );
+    gltfLoader.parse(glbBuffer, './', res, rej);
   });
 } catch(e) {
   showError(
     'Model load error',
-    'Could not load <code>BMW_BIke_configurator_1.glb</code>.<br><br>' +
-    'Make sure the file is in the same folder and you are using a local HTTP server.',
+    'Could not load the 3D model chunks.<br><br>' +
+    'Make sure both <code>.part1.glb</code> and <code>.part2.glb</code> files are present and you are using a local HTTP server.',
     'Error: ' + e.message
   );
   throw e;

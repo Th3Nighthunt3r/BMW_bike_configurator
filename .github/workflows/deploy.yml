@@ -21,15 +21,14 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      # No LFS checkout needed — large assets are loaded at
-      # runtime via the GitHub LFS Batch API (CORS-enabled).
+      # No LFS — all assets are regular files served directly
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
-      - name: Upload artifact
+      - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: '.'
